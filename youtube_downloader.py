@@ -2,6 +2,11 @@ import streamlit as st
 import yt_dlp
 import os
 import tempfile
+import logging
+import re
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Configure page settings
 st.set_page_config(
@@ -107,9 +112,13 @@ def create_progress_hook(progress_bar):
                 progress_bar.progress(progress, f"Downloading: {progress:.1%}")
     return progress_hook
 
+def sanitize_filename(filename):
+    return re.sub(r'[\\/*?:"<>|]', "", filename)
+
 def download_video(url, quality='720p'):
     progress_bar = st.progress(0)
-    with tempfile.TemporaryDirectory() as temp_dir:
+    with tempfile.TemporaryDirectory(dir='/tmp') as temp_dir:
+        logging.debug(f"Temporary directory: {temp_dir}")
         # Define quality formats
         quality_formats = {
             'highest': 'bestvideo+bestaudio/best',
@@ -121,44 +130,71 @@ def download_video(url, quality='720p'):
             '360p': 'bestvideo[height<=360]+bestaudio/best[height<=360]',
         }
         
-        ydl_opts = {
-            'format': quality_formats.get(quality, quality_formats['720p']),
-            'merge_output_format': 'mp4',
-            'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
-            'progress_hooks': [create_progress_hook(progress_bar)],
-        }
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            video_path = os.path.join(temp_dir, f"{info['title']}.mp4")
+        try:
+            # First extract info without downloading
+            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+                info = ydl.extract_info(url, download=False)
+                sanitized_title = sanitize_filename(info['title'])
+                
+            # Then download with sanitized filename
+            ydl_opts = {
+                'format': quality_formats.get(quality, quality_formats['720p']),
+                'merge_output_format': 'mp4',
+                'outtmpl': os.path.join(temp_dir, f"{sanitized_title}.%(ext)s"),
+                'progress_hooks': [create_progress_hook(progress_bar)],
+            }
             
-            with open(video_path, 'rb') as f:
-                content = f.read()
-            progress_bar.progress(1.0, "Download Complete!")
-            return content, info['title']
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+                video_path = os.path.join(temp_dir, f"{sanitized_title}.mp4")
+                logging.debug(f"Video path: {video_path}")
+                
+                with open(video_path, 'rb') as f:
+                    content = f.read()
+                progress_bar.progress(1.0, "Download Complete!")
+                return content, sanitized_title
+        except Exception as e:
+            logging.error(f"Download error: {str(e)}")
+            st.error(f"Download error: {str(e)}")
+            st.error("Please check the URL or try a different video.")
+            return None, None
 
 def download_audio(url):
     progress_bar = st.progress(0)
-    with tempfile.TemporaryDirectory() as temp_dir:
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
-            'progress_hooks': [create_progress_hook(progress_bar)],
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-        }
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            audio_path = os.path.join(temp_dir, f"{info['title']}.mp3")
+    with tempfile.TemporaryDirectory(dir='/tmp') as temp_dir:
+        logging.debug(f"Temporary directory: {temp_dir}")
+        try:
+            # First extract info without downloading
+            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+                info = ydl.extract_info(url, download=False)
+                sanitized_title = sanitize_filename(info['title'])
+                
+            # Then download with sanitized filename
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'outtmpl': os.path.join(temp_dir, f"{sanitized_title}.%(ext)s"),
+                'progress_hooks': [create_progress_hook(progress_bar)],
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
+            }
             
-            with open(audio_path, 'rb') as f:
-                content = f.read()
-            progress_bar.progress(1.0, "Download Complete!")
-            return content, info['title']
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+                audio_path = os.path.join(temp_dir, f"{sanitized_title}.mp3")
+                logging.debug(f"Audio path: {audio_path}")
+                
+                with open(audio_path, 'rb') as f:
+                    content = f.read()
+                progress_bar.progress(1.0, "Download Complete!")
+                return content, sanitized_title
+        except Exception as e:
+            logging.error(f"Download error: {str(e)}")
+            st.error(f"Download error: {str(e)}")
+            st.error("Please check the URL or try a different video.")
+            return None, None
 
 # Modify the columns layout to accommodate quality selection
 col1, col2, col3 = st.columns([3, 1, 1])
@@ -206,32 +242,33 @@ if st.button("⬇ Download", help="Start downloading"):
                     file_extension = "mp3"
                     icon = "🎵"
                 
-                st.success(f" Ready to save! {'(Quality: ' + quality + ')' if download_type == 'Video' else ''}")
-                
-                # Styled download button
-                st.markdown("""
-                    <style>
-                    .stDownloadButton button {
-                        background-color: #00CC00 !important;
-                        color: white;
-                        padding: 0.5rem 2rem;
-                        font-weight: bold;
-                    }
-                    .stDownloadButton button:hover {
-                        background-color: #009900 !important;
-                    }
-                    </style>
-                """, unsafe_allow_html=True)
-                
-                st.download_button(
-                    label=f"{icon} Save {download_type}",
-                    data=content,
-                    file_name=f"{title}.{file_extension}",
-                    mime=f"{'video' if download_type == 'Video' else 'audio'}/{file_extension}",
-                    key="download_button"
-                )
+                if content:
+                    st.success(f" Ready to save! {'(Quality: ' + quality + ')' if download_type == 'Video' else ''}")
+                    
+                    # Styled download button
+                    st.markdown("""
+                        <style>
+                        .stDownloadButton button {
+                            background-color: #00CC00 !important;
+                            color: white;
+                            padding: 0.5rem 2rem;
+                            font-weight: bold;
+                        }
+                        .stDownloadButton button:hover {
+                            background-color: #009900 !important;
+                        }
+                        </style>
+                    """, unsafe_allow_html=True)
+                    
+                    st.download_button(
+                        label=f"{icon} Save {download_type}",
+                        data=content,
+                        file_name=f"{title}.{file_extension}",
+                        mime=f"{'video' if download_type == 'Video' else 'audio'}/{file_extension}",
+                        key="download_button"
+                    )
         except Exception as e:
+            logging.error(f"Error: {str(e)}")
             st.error(f" Error: {str(e)}")
     else:
         st.warning("⚠️ Please enter a YouTube URL")
-
