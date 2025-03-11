@@ -7,14 +7,12 @@ import re
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Configure page settings
 st.set_page_config(
     page_title="YouTube Downloader",
     page_icon="🎥",
     layout="centered"
 )
 
-# Custom CSS
 st.markdown("""
     <style>
     .stApp {
