@@ -1,4 +1,4 @@
-import streamlit as st
+`import streamlit as st
 import yt_dlp
 import os
 import tempfile
@@ -91,7 +91,6 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Header
 st.markdown("""
     <div class="download-header">
         <h1>YouTube video Downloader</h1>
@@ -128,12 +127,12 @@ def download_video(url, quality='720p'):
         }
         
         try:
-            # First extract info without downloading
+
             with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
                 info = ydl.extract_info(url, download=False)
                 sanitized_title = sanitize_filename(info['title'])
                 
-            # Then download with sanitized filename
+
             ydl_opts = {
                 'format': quality_formats.get(quality, quality_formats['720p']),
                 'merge_output_format': 'mp4',
