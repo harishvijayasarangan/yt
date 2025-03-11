@@ -5,7 +5,6 @@ import tempfile
 import logging
 import re
 
-# Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Configure page settings
